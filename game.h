@@ -3,6 +3,8 @@
  *
  *  Created on: 2026. nov. 7.
  *      Author: Lin Chen, Tóth Péter
+ *  Modified on: 2026. nov. 20
+ *      Author: Lin Chen, Zih Ádám
  */
 
 #ifndef GAME_H_
@@ -26,6 +28,11 @@ bool Game_NextBananaPhase(); //return true when a banana lands
 void Game_SpeedUp();
 void Game_SlowDown();
 
+//settings are accepted only while no game is running
+bool Game_SetSpeedUpLevel(uint8_t level);
+bool Game_SetMaxBananas(uint8_t limit);
+
+
 //get the current position
 uint8_t Game_GetBasketCol();
 uint8_t Game_GetBananaCol();
@@ -38,6 +45,9 @@ uint8_t Game_GetCaughtCount();
 //get the speed settings
 uint8_t Game_GetSpeedLevel();
 uint16_t Game_GetStepDurations();
+
+//get the maximum of bananas
+uint8_t Game_GetMaxBananas();
 
 //check whether the game has finished
 bool Game_IsFinished();

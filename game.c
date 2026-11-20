@@ -3,6 +3,8 @@
  *
  *  Created on: 2026. nov. 7.
  *      Author: Lin Chen, Tóth Péter
+ *  Modified on: 2026. nov. 20
+ *      Author: Lin Chen, Zih Ádám
  */
 
 /***************************************************************************//**
@@ -14,7 +16,7 @@ game logic: it manages the basket and banana positions, controls the animation p
 #include<stdlib.h>
 
 #define TREE_COUNT 4   //4 banana trees
-#define MAX_BANANAS 25  //maximum number of bananas
+#define DEFAULT_MAX_BANANAS 25  //maximum number of bananas
 #define MAX_SPEED_LEVEL 5  //5 speed levels
 
 //Game state
@@ -35,6 +37,9 @@ static uint8_t caught=0;
 
 //current speed level
 static uint8_t speedLevel=1;
+
+// Configurable number of falling bananas (1..99, LCD uses two digits).
+static uint8_t maxBananas=DEFAULT_MAX_BANANAS;
 
 //duration of one banana phase in milliseconds
 static const uint16_t speedDurations[MAX_SPEED_LEVEL]={
@@ -57,6 +62,7 @@ void Game_Init()
   caught = 0;
 
   speedLevel = 1;
+  maxBananas = DEFAULT_MAX_BANANAS;
 }
 
 void Game_Start(){
@@ -83,6 +89,24 @@ void Game_MoveRight() //if the game is running and we still have space to move r
    if(Game_IsRunning() && basketCol< TREE_COUNT-1){
        basketCol++;
    }
+}
+
+bool Game_SetSpeedLevel(uint8_t level)
+{
+  if (gameRunning || level < 1 || level > MAX_SPEED_LEVEL) {
+    return false;
+  }
+  speedLevel = level;
+  return true;
+}
+
+bool Game_SetMaxBananas(uint8_t limit)
+{
+  if (gameRunning || limit < 1 || limit > 99) {
+    return false;
+  }
+  maxBananas = limit;
+  return true;
 }
 
 void Game_SpeedUp(){
@@ -122,7 +146,7 @@ bool Game_NextBananaPhase()
   }
 
   //stop after 25 landed bananas
-  if(fallen>= MAX_BANANAS){
+  if(fallen>= maxBananas){
       gameRunning=false;
   }
   else{
@@ -165,6 +189,10 @@ uint8_t Game_GetSpeedLevel(){
   return speedLevel;
 }
 
+uint8_t Game_GetMaxBananas(void){
+  return maxBananas;
+}
+
 uint16_t Game_GetStepDurations(){
   return speedDurations[speedLevel-1];
 }
@@ -174,7 +202,7 @@ uint16_t Game_GetStepDurations(){
  ******************************************************************************/
 bool Game_IsFinished()//game finishes when 25 bananas had dropped
 {
-    return fallen >= MAX_BANANAS;
+    return fallen >= maxBananas;
 }
 
 bool Game_IsRunning(){
