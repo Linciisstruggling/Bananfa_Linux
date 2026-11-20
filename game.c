@@ -16,7 +16,7 @@ game logic: it manages the basket and banana positions, controls the animation p
 #include<stdlib.h>
 
 #define TREE_COUNT 4   //4 banana trees
-#define DEFAULT_MAX_BANANAS 25  //maximum number of bananas
+#define DEFAULT_MAX_BANANAS 25  //default limit, can be changed from Linux
 #define MAX_SPEED_LEVEL 5  //5 speed levels
 
 //Game state
@@ -77,6 +77,17 @@ void Game_Start(){
   gameRunning=true;
 }
 
+// Return to the waiting state without changing the selected speed or game limit.
+void Game_Reset(void)
+{
+  gameRunning = false;
+  basketCol = 1;
+  bananaCol = 0;
+  bananaPhase = 0;
+  fallen = 0;
+  caught = 0;
+}
+
 void Game_MoveLeft() //if the game is running and we still have space to move left
 {
    if(Game_IsRunning() && basketCol>0){
@@ -102,7 +113,7 @@ bool Game_SetSpeedLevel(uint8_t level)
 
 bool Game_SetMaxBananas(uint8_t limit)
 {
-  if (gameRunning || limit < 1 || limit > 99) {
+  if (gameRunning || limit < 25 || limit > 99) {
     return false;
   }
   maxBananas = limit;

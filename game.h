@@ -17,6 +17,8 @@
 void Game_Init();
 void Game_Start();
 
+void Game_Reset(); //reset the board, basket and scores
+
 //move the basket
 void Game_MoveLeft();
 void Game_MoveRight();
@@ -28,10 +30,10 @@ bool Game_NextBananaPhase(); //return true when a banana lands
 void Game_SpeedUp();
 void Game_SlowDown();
 
-//settings are accepted only while no game is running
-bool Game_SetSpeedUpLevel(uint8_t level);
-bool Game_SetMaxBananas(uint8_t limit);
-
+//settings are accepted only before the game starts
+bool Game_SetSpeedLevel(uint8_t level);
+bool Game_SetMaxBananas(uint8_t limit); //set the number of falling bananas(25...99)
+//return false if invalid
 
 //get the current position
 uint8_t Game_GetBasketCol();
