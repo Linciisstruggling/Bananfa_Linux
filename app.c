@@ -68,7 +68,7 @@ static void reportSpeed(void)
 static void reportState(void)
 {
     char text[96];
-    snprintf(text, sizeof(text), "@STATE %u %u %u %u %u %u %u %u %u\r\n",
+    snprintf(text, sizeof(text), "\r\n@STATE %u %u %u %u %u %u %u %u %u\r\n",
              (unsigned)Game_GetBasketCol(), (unsigned)Game_GetBananaCol(),
              (unsigned)Game_GetBananaPhase(), (unsigned)Game_GetFallenCount(),
              (unsigned)Game_GetCaughtCount(), (unsigned)Game_GetSpeedLevel(),
@@ -130,22 +130,22 @@ void app_init(void)
   UARTComm_Init();
 
   // Enable the two physical buttons (active-low PB0/PB1).
-    CMU_ClockEnable(cmuClock_GPIO, true);  //GPIO peripheral need its clock before use
+  CMU_ClockEnable(cmuClock_GPIO, true);  //GPIO peripheral need its clock before use
 
-    GPIO_PinModeSet(gpioPortB, 9, gpioModeInput, 0);  //PB0 ->pin B9, left
-    GPIO_PinModeSet(gpioPortB, 10, gpioModeInput, 0);  //PB1 ->pin B10, right
+  GPIO_PinModeSet(gpioPortB, 9, gpioModeInput, 0);  //PB0 ->pin B9, left
+  GPIO_PinModeSet(gpioPortB, 10, gpioModeInput, 0);  //PB1 ->pin B10, right
 
-    //store the starting state, so a button held during boot is not seen as a new press
+  //store the starting state, so a button held during boot is not seen as a new press
     rawButtons = stableButtons =
-        (GPIO_PinInGet(gpioPortB, 9) == 0 ? 1u : 0u)
+  (GPIO_PinInGet(gpioPortB, 9) == 0 ? 1u : 0u)
       | (GPIO_PinInGet(gpioPortB, 10) == 0 ? 2u : 0u);
 
-    // Show the controls and tell the Linux client the current settings.
+  // Show the controls and tell the Linux client the current settings.
     sendString("\r\nBananfa: s=start, x=reset, b=left, j=right; m25..m99=limit\r\n");
 
-    // Report the initial settings
-    reportSpeed();
-    reportState();
+  // Report the initial settings
+  reportSpeed();
+  reportState();
 }
 
 /***************************************************************************//**
@@ -286,5 +286,9 @@ void app_process_action(void)
         // Update the basket and banana display
         LCDView_Draw();
         changed = true;
+      }
+
+      if (changed) {  //send the new state to Linux if anything changed
+          reportState();
       }
 }
