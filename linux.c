@@ -38,6 +38,14 @@ static int start_speed = 1, start_limit = 25;
 static int serial_fd = -1;
 static bool speed_given = false, limit_given = false;
 static bool have_state = false, was_running = false, score_saved = false;
+
+/* Interactive help and game configuration. */
+static bool showing_help = false;
+static char setting_mode = '\0';
+static char setting_text[12] = "";
+static size_t setting_length = 0;
+static char feedback[128] = "";
+
 /* Keep the warning visible during the game. */
 static bool setting_warning = false;
 static struct termios old_terminal;
@@ -52,18 +60,17 @@ static void stop_handler(int signal_number) {
 
 /* Print help*/
 static void help(const char *program) {
-  printf("Használat: %s [-d port] [-v sebesség] [-m banánok] [-n név] [-f "
-         "fájl] [-h]\n",
+  printf("Használat: %s [-v sebesség] [-m banánok] [-n név] [-t "
+         "eredménytáblal] [-h]\n",
          program);
-  puts("  -d PORT  Soros port (alapértelmezett: /dev/ttyACM0)");
   puts("  -v 1..5  Játéksebesség");
   puts("  -m 25..99  Maximális banánszám");
   puts("  -n NÉV   Játékos neve");
-  puts("  -f FÁJL  Eredményfájl (alapértelmezett: scores.txt)");
+  puts("  -t FÁJL  Eredménytábla (alapértelmezett: scores.txt)");
   puts("  -h       Súgó");
   puts("Gombok: s indítás, b balra, j jobbra, x reset, q kilépés");
-  puts("        n név megadása, v 1..5 sebesség, m banánlimit, f "
-       "eredménytábla, ? állapot");
+  puts("        n név, v sebesség(1...5), m banánlimit(25...99), +/- sebesség");
+  puts("        t eredménytábla, h részletes súgó");
 }
 
 /* Parse the input completely; atoi() would silently accept invalid text. */
@@ -80,7 +87,6 @@ static bool parse_number(const char *text, int minimum, int maximum,
   return true;
 }
 
-/* Open the board's virtual serial port in 115200-8-N-1 raw mode (Lab03). */
 static int open_serial(const char *port) {
   int fd = open(port, O_RDWR | O_NOCTTY);
   if (fd < 0)
@@ -126,6 +132,35 @@ static bool send_command(const char *command) {
 static void draw_game(void) {
   if (isatty(STDOUT_FILENO))
     printf("\033[2J\033[H");
+
+  /* Keep the help page visible until the user presses a key. */
+  if (showing_help) {
+    puts("========= BANÁNFA - RÉSZLETES SÚGÓ =========");
+    puts("A játék célja a négy fáról leeső banánok elkapása.");
+    puts("A kosarat a fák alá kell mozgatni.");
+
+    puts("\nJÁTÉKVEZÉRLÉS:");
+    puts("s = játék indítása");
+    puts("b = kosár balra, j = kosár jobbra");
+    puts("A fejlesztőkártya PB0/PB1 gombjai is használhatók.");
+    puts("x = reset, q = kilépés és leállítás");
+
+    puts("\nBEÁLLÍTÁSOK:");
+    puts("n = játékos nevének megadása");
+    puts("v = sebesség megadása (1..5), majd Enter");
+    puts("m = maximális banánszám (25..99), majd Enter");
+    puts("+/- = sebesség növelése vagy csökkentése");
+    puts("A beállítások csak játék előtt módosíthatók.");
+
+    puts("\nEREDMÉNYEK:");
+    puts("t = eredménytábla");
+    puts("A befejezett játék eredménye fájlba kerül.");
+
+    puts("\nVisszatéréshez nyomj meg egy billentyűt.");
+    fflush(stdout);
+    return;
+  }
+
   printf("\n========= BANÁNFA =========\n");
   printf("Játékos: %s | Sebesség: %d/5 | Banánlimit: %d\n", player, game.speed,
          game.limit);
@@ -146,7 +181,8 @@ static void draw_game(void) {
                               : game.finished ? "Játék vége"
                                               : "Indításra kész");
   puts("s=start | b=bal | j=jobb | x=reset | q=kilépés | t=eredmények");
-  puts("Indítás előtt: n=név | 1..5 sebesség | +/- banánlimit | ?=állapot");
+  puts("Indítás előtt: n=név | v=sebesség | m=banánlimit | +/- sebesség | "
+       "h=súgó");
   /* Display the warning on every screen refresh. */
   if (setting_warning) {
     puts("\nFIGYELEM: A beállításokat csak játék előtt módosíthatod!");
@@ -156,6 +192,21 @@ static void draw_game(void) {
     printf("\nÚj játékosnév: %s_\n", typed_name);
     puts("Enter = mentés | Backspace = törlés | Esc = mégse");
   }
+
+  /* Show the value currently being entered. */
+  if (setting_mode) {
+    printf("\n%s megadása: %s_\n",
+           setting_mode == 'v' ? "Sebesség (1..5)" : "Banánlimit (25..99)",
+           setting_text);
+
+    puts("Enter = mentés | Backspace = törlés | Esc = mégse");
+  }
+
+  /* Keep warning messages visible after screen refreshes. */
+  if (feedback[0]) {
+    printf("\n%s\n", feedback);
+  }
+
   fflush(stdout);
 }
 
@@ -167,7 +218,7 @@ static int compare_scores(const void *left, const void *right) {
   return (a->fallen > b->fallen) - (a->fallen < b->fallen);
 }
 
-/* Read the text file and display a sorted leaderboard (Lab03 file I/O). */
+/* Read the text file and display a sorted leaderboard */
 static void show_scores(void) {
   Score records[MAX_RECORDS];
   int count = 0;
@@ -293,6 +344,53 @@ static void receive_serial(void) {
   }
 }
 
+/* Handle numeric input for speed and banana limit. */
+static void handle_setting_key(char ch) {
+  char command[16];
+
+  if (ch == 27) {
+    /* Escape cancels the setting. */
+    setting_mode = '\0';
+    snprintf(feedback, sizeof(feedback), "Beállítás megszakítva.");
+  } else if (ch == 8 || ch == 127) {
+    /* Backspace removes the last character. */
+    if (setting_length > 0) {
+      setting_text[--setting_length] = '\0';
+    }
+  } else if (ch == '\n' || ch == '\r') {
+    /* Enter validates the value. */
+    int value;
+    char mode = setting_mode;
+    setting_mode = '\0';
+
+    if (!parse_number(setting_text, mode == 'v' ? 1 : 25, mode == 'v' ? 5 : 99,
+                      &value)) {
+
+      snprintf(feedback, sizeof(feedback),
+               mode == 'v' ? "Hibás sebesség! Érvényes: 1..5."
+                           : "Hibás banánlimit! Érvényes: 25..99.");
+    } else {
+      /* Send valid settings to the development board. */
+      snprintf(command, sizeof(command), "%c%d\n", mode, value);
+
+      if (send_command(command)) {
+        snprintf(feedback, sizeof(feedback), "%s: %d (visszaigazolásra vár)",
+                 mode == 'v' ? "Sebesség" : "Banánlimit", value);
+      }
+    }
+  } else if (((ch >= '0' && ch <= '9') || (ch == '-' && setting_length == 0)) &&
+             setting_length + 1 < sizeof(setting_text)) {
+
+    /* Store digits without overflowing the buffer. */
+    setting_text[setting_length++] = ch;
+    setting_text[setting_length] = '\0';
+  } else {
+    snprintf(feedback, sizeof(feedback), "Csak egész számot adj meg!");
+  }
+
+  draw_game();
+}
+
 /* Process one key from the Linux terminal, including menu settings. */
 static void handle_key(char ch) {
   char command[16];
@@ -324,6 +422,26 @@ static void handle_key(char ch) {
     return;
   }
 
+  /* Close help when the user presses a key. */
+  if (showing_help) {
+    showing_help = false;
+    draw_game();
+    return;
+  }
+
+  /* Process numeric input after pressing v or m. */
+  if (setting_mode) {
+    handle_setting_key(ch);
+    return;
+  }
+
+  /* Open the detailed help screen. */
+  if (ch == 'h') {
+    showing_help = true;
+    draw_game();
+    return;
+  }
+
   /* Start name editing before the game begins. */
   if (ch == 'n' && !game.running) {
     editing_name = true;
@@ -351,51 +469,77 @@ static void handle_key(char ch) {
     return;
   }
 
-  /* Send game control commands to the development board. */
+  /* Send game control commands over UART. */
   if (ch == 's' || ch == 'b' || ch == 'j' || ch == 'x') {
+
     command[0] = ch;
     command[1] = '\0';
+
+    feedback[0] = '\0';
     send_command(command);
     return;
   }
 
+  /* Ignore keys that are not configuration commands. */
+  if (ch != 'v' && ch != 'm' && ch != '+' && ch != '-') {
+    return;
+  }
+
+  /* Wait until the initial state arrives from the board. */
   if (!have_state) {
-    puts("Várakozás az első állapotüzenetre.");
+    snprintf(feedback, sizeof(feedback),
+             "Várakozás a fejlesztőkártya állapotára.");
+    draw_game();
     return;
   }
 
-  /* Prevent changing settings while the game is running. */
+  /* Do not change settings during gameplay. */
   if (game.running) {
-    if (ch == '+' || ch == '-' || (ch >= '1' && ch <= '5')) {
-      setting_warning = true;
-      draw_game();
-    }
+    snprintf(feedback, sizeof(feedback),
+             "A beállítások csak játék előtt módosíthatók!");
+    draw_game();
     return;
   }
 
-  if (ch >= '1' && ch <= '5') {
-    snprintf(command, sizeof(command), "v%d\n", ch - '0');
-    send_command(command);
-  } else if ((ch == '+' && game.limit < 99) || (ch == '-' && game.limit > 25)) {
-    snprintf(command, sizeof(command), "m%d\n",
-             game.limit + (ch == '+' ? 1 : -1));
-    send_command(command);
+  /* Start numeric input for speed or banana limit. */
+  if (ch == 'v' || ch == 'm') {
+    setting_mode = ch;
+    setting_length = 0;
+    setting_text[0] = '\0';
+    feedback[0] = '\0';
+
+    draw_game();
+    return;
   }
+
+  /* Increase or decrease the speed by one level. */
+  int next_speed = game.speed + (ch == '+' ? 1 : -1);
+
+  if (next_speed < 1 || next_speed > 5) {
+    snprintf(feedback, sizeof(feedback),
+             "A sebesség csak 1 és 5 között lehet!");
+  } else {
+    char command[16];
+
+    snprintf(command, sizeof(command), "v%d\n", next_speed);
+
+    if (send_command(command)) {
+      snprintf(feedback, sizeof(feedback), "Sebességmódosítás elküldve: %d/5",
+               next_speed);
+    }
+  }
+
+  draw_game();
 }
 
 int main(int argc, char *argv[]) {
   /* The -d/-v/-m/-n/-f/-h switches follow the Lab02 getopt() example. */
   int option;
-  while ((option = getopt(argc, argv, "hd:v:m:n:f:")) != -1) {
+  while ((option = getopt(argc, argv, "hv:m:n:t:")) != -1) {
     switch (option) {
     case 'h':
       help(argv[0]);
       return 0;
-    case 'd':
-      if (strlen(optarg) >= sizeof(device))
-        return fprintf(stderr, "Túl hosszú portnév.\n"), 1;
-      strcpy(device, optarg);
-      break;
     case 'v':
       speed_given = true;
       if (!parse_number(optarg, 1, 5, &start_speed))
@@ -413,7 +557,7 @@ int main(int argc, char *argv[]) {
                1;
       strcpy(player, optarg);
       break;
-    case 'f':
+    case 't':
       if (strlen(optarg) >= sizeof(score_file))
         return fprintf(stderr, "Túl hosszú fájlnév.\n"), 1;
       strcpy(score_file, optarg);
@@ -458,7 +602,6 @@ int main(int argc, char *argv[]) {
   }
   send_command("?"); /* Ask for initial state, including board-side settings. */
 
-  /* Lab03: poll() waits for serial data and keyboard input in one thread. */
   struct pollfd inputs[2] = {{.fd = STDIN_FILENO, .events = POLLIN},
                              {.fd = serial_fd, .events = POLLIN}};
   bool show_game_after_table = false;
@@ -482,17 +625,21 @@ int main(int argc, char *argv[]) {
       else
         for (ssize_t i = 0; i < count && !stopping; ++i) {
           /* Allow Enter while editing the player name. */
-          if (!editing_name && (keys[i] == '\n' || keys[i] == '\r')) {
+          /* Enter is needed for name and numeric setting input. */
+          if (!editing_name && !setting_mode && !showing_help &&
+              (keys[i] == '\n' || keys[i] == '\r')) {
             continue;
           }
 
-          bool showing_table = !editing_name && keys[i] == 't';
+          /* Check whether the score table is being opened. */
+          bool table_requested =
+              !editing_name && !setting_mode && !showing_help && keys[i] == 't';
 
           handle_key(keys[i]);
 
-          if (showing_table) {
+          if (table_requested) {
             show_game_after_table = true;
-          } else if (show_game_after_table) {
+          } else if (show_game_after_table && !showing_help) {
             draw_game();
             show_game_after_table = false;
           }
@@ -502,7 +649,7 @@ int main(int argc, char *argv[]) {
       inputs[0].fd = -1;
   }
 
-  /* 'x' resets/stops the board when the Linux program exits. */
+  /* 'x' resets the board when the Linux program exits. */
   if (serial_fd >= 0) {
     (void)write(serial_fd, "x", 1);
     (void)tcdrain(serial_fd);
