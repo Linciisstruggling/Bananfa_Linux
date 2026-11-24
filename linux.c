@@ -34,6 +34,8 @@ static bool editing_name = false;
 static char typed_name[40] = "";
 static size_t typed_length = 0;
 
+/* Start the game automatically with the -s option. */
+static bool auto_start = false;
 static int start_speed = 1, start_limit = 25;
 static int serial_fd = -1;
 static bool speed_given = false, limit_given = false;
@@ -60,16 +62,19 @@ static void stop_handler(int signal_number) {
 
 /* Print help*/
 static void help(const char *program) {
-  printf("Használat: %s [-v sebesség] [-m banánok] [-n név] [-t "
-         "eredménytáblal] [-h]\n",
+  printf("Használat: %s [-v sebesség] [-m banánok] "
+         "[-n név] [-t eredménytábla] [-s] [-h]\n",
          program);
+
   puts("  -v 1..5  Játéksebesség");
   puts("  -m 25..99  Maximális banánszám");
   puts("  -n NÉV   Játékos neve");
   puts("  -t FÁJL  Eredménytábla (alapértelmezett: scores.txt)");
+  puts("  -s       Játék közvetlen indítása");
   puts("  -h       Súgó");
+
   puts("Gombok: s indítás, b balra, j jobbra, x reset, q kilépés");
-  puts("        n név, v sebesség(1...5), m banánlimit(25...99), +/- sebesség");
+  puts("        n név, v sebesség, m banánlimit, +/- sebesség");
   puts("        t eredménytábla, h részletes súgó");
 }
 
@@ -374,8 +379,7 @@ static void handle_setting_key(char ch) {
       snprintf(command, sizeof(command), "%c%d\n", mode, value);
 
       if (send_command(command)) {
-        snprintf(feedback, sizeof(feedback), "%s: %d (visszaigazolásra vár)",
-                 mode == 'v' ? "Sebesség" : "Banánlimit", value);
+        feedback[0] = '\0';
       }
     }
   } else if (((ch >= '0' && ch <= '9') || (ch == '-' && setting_length == 0)) &&
@@ -435,18 +439,13 @@ static void handle_key(char ch) {
     return;
   }
 
-  /* Open the detailed help screen. */
+  /* Stop the running game before opening the help screen. */
   if (ch == 'h') {
-    showing_help = true;
-    draw_game();
-    return;
-  }
+    if (game.running && !send_command("x"))
+      return;
 
-  /* Start name editing before the game begins. */
-  if (ch == 'n' && !game.running) {
-    editing_name = true;
-    typed_length = 0;
-    typed_name[0] = '\0';
+    feedback[0] = '\0';
+    showing_help = true;
     draw_game();
     return;
   }
@@ -533,13 +532,22 @@ static void handle_key(char ch) {
 }
 
 int main(int argc, char *argv[]) {
-  /* The -d/-v/-m/-n/-f/-h switches follow the Lab02 getopt() example. */
+  /* Display usage when no command-line arguments are provided. */
+  if (argc == 1) {
+    help(argv[0]);
+    return 0;
+  }
+
+  /* The -d/-v/-m/-n/-f/-h switches between the functions*/
   int option;
-  while ((option = getopt(argc, argv, "hv:m:n:t:")) != -1) {
+  while ((option = getopt(argc, argv, "hsv:m:n:t:")) != -1) {
     switch (option) {
     case 'h':
       help(argv[0]);
       return 0;
+    case 's':
+      auto_start = true;
+      break;
     case 'v':
       speed_given = true;
       if (!parse_number(optarg, 1, 5, &start_speed))
@@ -551,12 +559,14 @@ int main(int argc, char *argv[]) {
         return fprintf(stderr, "Banánlimit: 25..99\n"), 1;
       break;
     case 'n':
-      if (strlen(optarg) >= sizeof(player) || strpbrk(optarg, " \t\r\n"))
-        return fprintf(stderr,
-                       "A név legfeljebb 39 karakter, szóköz nélkül.\n"),
-               1;
+      // Allow spaces, but reject tabs and line breaks.
+      if (optarg[0] == '\0' || strlen(optarg) >= sizeof(player) ||
+          strpbrk(optarg, "\t\r\n"))
+        return fprintf(stderr, "Érvénytelen játékosnév (max. 39 bájt).\n"), 1;
+
       strcpy(player, optarg);
       break;
+
     case 't':
       if (strlen(optarg) >= sizeof(score_file))
         return fprintf(stderr, "Túl hosszú fájlnév.\n"), 1;
@@ -589,18 +599,40 @@ int main(int argc, char *argv[]) {
   }
   signal(SIGINT, stop_handler);
   signal(SIGTERM, stop_handler);
-  puts("Kapcsolódva. Az indításhoz nyomd meg az s gombot.");
-  if (speed_given) {
+  /* Reset the board before automatic start. */
+  if (auto_start) {
+    puts("Kapcsolódva. Játék indítása.");
+    send_command("x");
+  } else {
+    puts("Kapcsolódva. Az indításhoz nyomd meg az s gombot.");
+  }
+
+  /* Apply the selected speed. */
+  if (!stopping && speed_given) {
     char cmd[16];
     snprintf(cmd, sizeof(cmd), "v%d\n", start_speed);
     send_command(cmd);
   }
-  if (limit_given) {
+
+  /* Apply the selected banana limit. */
+  if (!stopping && limit_given) {
     char cmd[16];
     snprintf(cmd, sizeof(cmd), "m%d\n", start_limit);
     send_command(cmd);
   }
-  send_command("?"); /* Ask for initial state, including board-side settings. */
+
+  /* Request the current game state. */
+  if (!stopping)
+    send_command("?");
+
+  /* Start the game after applying all command-line settings. */
+  if (!stopping && auto_start) {
+    send_command("s");
+  }
+
+  /* Start the game automatically if -s was specified. */
+  if (!stopping && auto_start)
+    send_command("s");
 
   struct pollfd inputs[2] = {{.fd = STDIN_FILENO, .events = POLLIN},
                              {.fd = serial_fd, .events = POLLIN}};
