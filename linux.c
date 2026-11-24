@@ -284,7 +284,7 @@ static void draw_game(void) {
     for (int col = 0; col < TREES; ++col)
       out("    %-7s", game.running && game.banana == col && game.phase == row
                           ? "(o)"
-                          : "|");
+                          : " |");
     out("\n");
   }
   for (int col = 0; col < TREES; ++col)
